@@ -78,15 +78,16 @@ NSE aggressively blocks non-browser traffic. I engineered a session management l
     *Access the dashboard at `http://localhost:8501`*
 
  ## Architecture Diagram
-    <img width="1197" height="526" alt="architecture diagram" src="https://github.com/user-attachments/assets/5f23f23c-cc09-4115-b431-ef47d4521b80" />
+   <img width="1197" height="526" alt="architecture diagram" src="https://github.com/user-attachments/assets/bb480786-8b85-40a7-ac33-6b803d67ac1f" />
+
 
 
 ## 📊 Sample Visuals
 
 ### 1. Net Gamma Exposure (Market Maker Positioning)
 *Visualizes where Dealers are Long/Short Gamma, predicting market volatility.*
-*(Insert Screenshot Here)*
+
 
 ### 2. Volatility Smile
 *Real-time skew of Implied Volatility across strike prices.*
-*(Insert Screenshot Here)*
+
