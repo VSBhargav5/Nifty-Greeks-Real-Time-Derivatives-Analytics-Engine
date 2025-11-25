@@ -77,6 +77,10 @@ NSE aggressively blocks non-browser traffic. I engineered a session management l
     ```
     *Access the dashboard at `http://localhost:8501`*
 
+ ## Architecture Diagram
+    <img width="1197" height="526" alt="architecture diagram" src="https://github.com/user-attachments/assets/5f23f23c-cc09-4115-b431-ef47d4521b80" />
+
+
 ## 📊 Sample Visuals
 
 ### 1. Net Gamma Exposure (Market Maker Positioning)
