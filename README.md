@@ -85,9 +85,19 @@ NSE aggressively blocks non-browser traffic. I engineered a session management l
 ## 📊 Sample Visuals
 
 ### 1. Net Gamma Exposure (Market Maker Positioning)
-*Visualizes where Dealers are Long/Short Gamma, predicting market volatility.*
+*Visualizes where Dealers a<img width="1877" height="810" alt="GEX SS" src="https://github.com/user-attachments/assets/5a8faaeb-e779-4c97-b9be-bacd8e1071b5" />
+re Long/Short Gamma, predicting market volatility.*
+
 
 
 ### 2. Volatility Smile
 *Real-time skew of Implied Volatility across strike prices.*
+<img width="1878" height="822" alt="IV SS" src="https://github.com/user-attachments/assets/dd022cb4-d53b-4253-aca0-e2e45bac8271" />
+
+
+
+### 3. Open Interest
+* Open interest indicates the total number of outstanding or active futures and options contracts for a given asset
+<img width="1877" height="848" alt="OI SS" src="https://github.com/user-attachments/assets/0c38c8b2-c8e4-476a-9a59-f8b77b78cf3f" />
+
 
