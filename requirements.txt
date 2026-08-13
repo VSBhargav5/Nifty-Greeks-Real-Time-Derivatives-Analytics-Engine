@@ -1,0 +1,8 @@
+pandas>=2.0
+numpy>=1.24
+requests>=2.31
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+py_vollib_vectorized>=0.1.1
+streamlit>=1.28
+plotly>=5.18
