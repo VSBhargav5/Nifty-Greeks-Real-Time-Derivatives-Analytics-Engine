@@ -19,4 +19,4 @@ jobs:
           python -m pip install -U pip
           pip install pandas numpy pytest
       - name: Unit tests
-        run: pytest -q
+        run: PYTHONPATH=. pytest -q
