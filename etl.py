@@ -14,6 +14,8 @@ import requests
 from py_vollib_vectorized import get_all_greeks, vectorized_implied_volatility
 from sqlalchemy import create_engine
 
+from metrics import dealer_gex, time_to_expiry_years
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -39,17 +41,6 @@ HEADERS = {
     "Connection": "keep-alive",
     "Referer": "https://www.nseindia.com/option-chain",
 }
-
-
-def _time_to_expiry_years(expiry_str: str, as_of: datetime | None = None) -> float:
-    """NSE expiry strings are like '28-Aug-2025'. Floor at ~1 trading day."""
-    as_of = as_of or datetime.now()
-    try:
-        exp = datetime.strptime(expiry_str, "%d-%b-%Y")
-    except ValueError:
-        return 1 / 52
-    days = max((exp.date() - as_of.date()).days, 1)
-    return days / 365.0
 
 
 def get_nse_data(symbol: str = "NIFTY") -> dict | None:
@@ -90,7 +81,7 @@ def process_data(raw_json: dict | None) -> None:
     expiry_list = raw_json["records"]["expiryDates"]
     current_expiry = expiry_list[0]
     underlying_price = float(raw_json["records"]["underlyingValue"])
-    tte = _time_to_expiry_years(current_expiry)
+    tte = time_to_expiry_years(current_expiry)
     timestamp = datetime.now()
 
     logging.info(
@@ -162,12 +153,7 @@ def process_data(raw_json: dict | None) -> None:
         df["theta"] = 0.0
         df["vega"] = 0.0
 
-    # Dealer GEX proxy: CE positive, PE negative
-    df["gex"] = np.where(
-        df["type"] == "CE",
-        df["gamma"] * df["oi"] * 100,
-        -df["gamma"] * df["oi"] * 100,
-    )
+    df["gex"] = dealer_gex(df["gamma"], df["oi"], df["type"])
     df["ingestion_timestamp"] = timestamp
 
     out_cols = [
