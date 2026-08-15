@@ -22,10 +22,25 @@ services:
     environment:
       DATABASE_URL: postgresql://admin:password@db:5432/options_db
       RISK_FREE_RATE: "0.07"
+      SYMBOL: NIFTY
+      POLL_MIN_SECONDS: "180"
+      POLL_MAX_SECONDS: "240"
     depends_on:
       db:
         condition: service_healthy
     restart: always
+
+  dashboard:
+    build: .
+    command: ["streamlit", "run", "dashboard.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    environment:
+      DATABASE_URL: postgresql://admin:password@db:5432/options_db
+    ports:
+      - "8501:8501"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
   pgadmin:
     image: dpage/pgadmin4
@@ -36,6 +51,7 @@ services:
       - "5050:80"
     depends_on:
       - db
+    profiles: ["tools"]
 
 volumes:
   pgdata:
