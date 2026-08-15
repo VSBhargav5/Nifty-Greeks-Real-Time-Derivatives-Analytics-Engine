@@ -19,11 +19,15 @@ def time_to_expiry_years(expiry_str: str, as_of: datetime | None = None) -> floa
     return days / 365.0
 
 
-def dealer_gex(gamma: pd.Series | np.ndarray, oi: pd.Series | np.ndarray, opt_type: pd.Series) -> np.ndarray:
+def dealer_gex(
+    gamma: pd.Series | np.ndarray,
+    oi: pd.Series | np.ndarray,
+    opt_type: pd.Series,
+) -> np.ndarray:
     """CE GEX positive, PE GEX negative (dealer sell-call / buy-put proxy)."""
     g = np.asarray(gamma, dtype=float)
     o = np.asarray(oi, dtype=float)
-    sign = np.where(opt_type.values == "CE", 1.0, -1.0)
+    sign = np.where(np.asarray(opt_type) == "CE", 1.0, -1.0)
     return sign * g * o * 100.0
 
 
@@ -46,3 +50,32 @@ def max_pain(df: pd.DataFrame) -> float | None:
             best_pain = total
             best_strike = float(s)
     return best_strike
+
+
+def put_call_ratio(df: pd.DataFrame) -> float | None:
+    """Put OI / Call OI. >1 often read as defensive / bearish positioning."""
+    if df is None or df.empty:
+        return None
+    call_oi = float(df.loc[df["type"] == "CE", "oi"].sum())
+    put_oi = float(df.loc[df["type"] == "PE", "oi"].sum())
+    if call_oi <= 0:
+        return None
+    return put_oi / call_oi
+
+
+def atm_iv(df: pd.DataFrame, spot: float | None = None) -> float | None:
+    """Average IV of CE+PE at the strike nearest to spot."""
+    if df is None or df.empty or "iv" not in df.columns:
+        return None
+    if spot is None:
+        if "underlying" not in df.columns:
+            return None
+        spot = float(df["underlying"].iloc[0])
+    strikes = df["strike"].unique()
+    if len(strikes) == 0:
+        return None
+    atm = float(min(strikes, key=lambda s: abs(float(s) - float(spot))))
+    legs = df[(df["strike"] == atm) & df["iv"].notna()]
+    if legs.empty:
+        return None
+    return float(legs["iv"].mean())
