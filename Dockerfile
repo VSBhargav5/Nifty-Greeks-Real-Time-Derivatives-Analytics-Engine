@@ -8,6 +8,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev gcc \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY metrics.py etl.py ./
+COPY metrics.py etl.py dashboard.py ./
 
 CMD ["python", "etl.py"]
