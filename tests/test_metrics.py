@@ -2,7 +2,15 @@ from datetime import datetime
 
 import pandas as pd
 
-from metrics import atm_iv, dealer_gex, max_pain, put_call_ratio, time_to_expiry_years
+from metrics import (
+    atm_iv,
+    dealer_gex,
+    gamma_flip_strike,
+    max_pain,
+    oi_walls,
+    put_call_ratio,
+    time_to_expiry_years,
+)
 
 
 def test_time_to_expiry_known_window():
@@ -36,25 +44,14 @@ def test_max_pain_simple_chain():
 
 
 def test_dealer_gex_signs():
-    df = pd.DataFrame(
-        {
-            "type": ["CE", "PE"],
-            "gamma": [0.01, 0.01],
-            "oi": [100, 100],
-        }
-    )
+    df = pd.DataFrame({"type": ["CE", "PE"], "gamma": [0.01, 0.01], "oi": [100, 100]})
     gex = dealer_gex(df["gamma"], df["oi"], df["type"])
     assert gex[0] > 0
     assert gex[1] < 0
 
 
 def test_put_call_ratio():
-    df = pd.DataFrame(
-        [
-            {"type": "CE", "oi": 100},
-            {"type": "PE", "oi": 150},
-        ]
-    )
+    df = pd.DataFrame([{"type": "CE", "oi": 100}, {"type": "PE", "oi": 150}])
     assert abs(put_call_ratio(df) - 1.5) < 1e-9
 
 
@@ -69,3 +66,29 @@ def test_atm_iv():
     iv = atm_iv(df, spot=101)
     assert iv is not None
     assert abs(iv - 0.21) < 1e-9
+
+
+def test_oi_walls():
+    df = pd.DataFrame(
+        [
+            {"type": "CE", "strike": 100, "oi": 10},
+            {"type": "CE", "strike": 110, "oi": 50},
+            {"type": "PE", "strike": 90, "oi": 80},
+            {"type": "PE", "strike": 100, "oi": 20},
+        ]
+    )
+    walls = oi_walls(df)
+    assert walls["call_resistance"] == 110.0
+    assert walls["put_support"] == 90.0
+
+
+def test_gamma_flip_strike():
+    df = pd.DataFrame(
+        {
+            "strike": [90, 100, 110, 90, 100, 110],
+            "type": ["CE", "CE", "CE", "PE", "PE", "PE"],
+            "gex": [50, 20, -10, -5, -40, -80],
+        }
+    )
+    flip = gamma_flip_strike(df)
+    assert flip is not None
