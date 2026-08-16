@@ -1,6 +1,8 @@
 # Nifty 50 Real-Time Greeks Engine
 
-High-frequency **ELT** pipeline: NSE option chain → vectorized Black–Scholes Greeks / IV → PostgreSQL → Streamlit (GEX, IV smile, OI, max pain, PCR, ATM IV, history).
+High-frequency **ELT** pipeline: NSE option chain → vectorized Black–Scholes Greeks / IV → PostgreSQL → Streamlit.
+
+Surfaces **GEX**, **IV smile**, **OI / ΔOI**, **max pain**, **PCR**, **ATM IV**, **call/put walls**, and **gamma-flip** estimates.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![Docker](https://img.shields.io/badge/Docker-Compose-blue)
@@ -8,14 +10,7 @@ High-frequency **ELT** pipeline: NSE option chain → vectorized Black–Scholes
 
 ## Disclaimer
 
-Educational / research PoC for data-engineering patterns (ELT, vectorization, containers). **Not** trading advice or commercial redistribution. Production ingestion would use licensed market data.
-
-## Architecture
-
-1. **Ingestion** — cookie hydration, retries on 401/403, jittered poll (`--once` supported)  
-2. **Transform** — NumPy / `py_vollib_vectorized` + `metrics.py` (TTE, GEX, max pain, PCR, ATM IV)  
-3. **Store** — PostgreSQL (`sql/init.sql` + indexes)  
-4. **Dashboard** — Streamlit: OI, ΔOI, IV smile, GEX, PCR, ATM IV, history
+Educational / research PoC for data-engineering patterns. **Not** trading advice. Production would use licensed market data.
 
 ## Quick start
 
@@ -23,44 +18,46 @@ Educational / research PoC for data-engineering patterns (ELT, vectorization, co
 git clone https://github.com/VSBhargav5/Nifty-Greeks-Real-Time-Derivatives-Analytics-Engine.git
 cd Nifty-Greeks-Real-Time-Derivatives-Analytics-Engine
 
-# Full stack: Postgres + ETL + Streamlit
-docker compose up -d --build
-# Dashboard → http://localhost:8501
+docker compose up -d --build   # db + etl + dashboard → :8501
 
-# Host-side tests / one-shot fetch
 pip install -r requirements.txt
 make test
-make once          # single ETL cycle
+python etl.py --once --expiries 2 --export-csv snapshots/latest.csv
 ```
 
-`pgAdmin` is optional: `docker compose --profile tools up -d`
-
-## Config
-
-Copy `.env.example` or export:
-
-| Env var | Default | Notes |
-|---------|---------|-------|
-| `DATABASE_URL` | local Postgres URL | Use `...@db:5432...` inside Compose |
-| `RISK_FREE_RATE` | `0.07` | Black–Scholes rate |
-| `SYMBOL` | `NIFTY` | e.g. `BANKNIFTY` |
-| `POLL_MIN_SECONDS` / `POLL_MAX_SECONDS` | 180 / 240 | Jittered poll window |
+## CLI highlights
 
 ```bash
+# Nearest expiry only (default)
+python etl.py --once
+
+# Two nearest expiries + CSV dump + purge rows older than 48h
+python etl.py --once --expiries 2 --export-csv out.csv --retain-hours 48
+
+# Other index
 python etl.py --once --symbol BANKNIFTY
 ```
 
-## Layout
+## Config
 
-```
-etl.py            # poll + Greeks + load
-metrics.py        # pure analytics helpers
-dashboard.py      # Streamlit UI
-sql/init.sql      # schema + indexes
-tests/            # offline unit tests
-Makefile          # test / up / once / dash
-```
+| Env var | Default |
+|---------|---------|
+| `DATABASE_URL` | local Postgres URL |
+| `RISK_FREE_RATE` | `0.07` |
+| `SYMBOL` | `NIFTY` |
+| `POLL_MIN_SECONDS` / `POLL_MAX_SECONDS` | 180 / 240 |
+| `RETAIN_HOURS` | `0` (keep all) |
+
+## Features
+
+- Vectorized IV + Greeks (`py_vollib_vectorized`)
+- Dealer **GEX** proxy, **max pain**, **PCR**, **ATM IV**
+- **OI walls** (max CE / PE open interest strikes)
+- Approximate **gamma flip** strike
+- Multi-expiry ingest, CSV export, snapshot retention
+- Streamlit tabs: OI/IV, GEX, history, downloadable data
+- Docker Compose (Postgres + ETL + dashboard)
 
 ## License
 
-MIT — personal / educational use. See `LICENSE`.
+MIT — see `LICENSE`.
