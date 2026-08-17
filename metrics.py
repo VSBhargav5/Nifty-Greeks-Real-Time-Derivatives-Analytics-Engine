@@ -102,12 +102,43 @@ def gamma_flip_strike(df: pd.DataFrame) -> float | None:
         return None
     cum = by_strike["gex"].cumsum().values
     strikes = by_strike["strike"].values
-    # Prefer first sign change in cumulative GEX
     for i in range(1, len(cum)):
         if cum[i - 1] == 0:
             return float(strikes[i - 1])
         if cum[i - 1] * cum[i] < 0:
             return float(strikes[i])
-    # Fallback: strike with GEX closest to zero
     idx = int(np.argmin(np.abs(by_strike["gex"].values)))
     return float(strikes[idx])
+
+
+def iv_skew(df: pd.DataFrame, spot: float | None = None, wing: float = 200.0) -> float | None:
+    """25-delta-ish proxy: PE IV near (spot - wing) minus CE IV near (spot + wing)."""
+    if df is None or df.empty or "iv" not in df.columns:
+        return None
+    if spot is None:
+        if "underlying" not in df.columns:
+            return None
+        spot = float(df["underlying"].iloc[0])
+    put_target, call_target = spot - wing, spot + wing
+    pe = df[df["type"] == "PE"]
+    ce = df[df["type"] == "CE"]
+    if pe.empty or ce.empty:
+        return None
+    put_strike = float(min(pe["strike"], key=lambda s: abs(float(s) - put_target)))
+    call_strike = float(min(ce["strike"], key=lambda s: abs(float(s) - call_target)))
+    put_iv = float(pe.loc[pe["strike"] == put_strike, "iv"].mean())
+    call_iv = float(ce.loc[ce["strike"] == call_strike, "iv"].mean())
+    if np.isnan(put_iv) or np.isnan(call_iv):
+        return None
+    return put_iv - call_iv
+
+
+def gamma_regime(net_gex: float | None) -> str:
+    """Coarse dealer-gamma regime label for the UI."""
+    if net_gex is None:
+        return "UNKNOWN"
+    if net_gex > 0:
+        return "LONG Γ · mean-reverting bias"
+    if net_gex < 0:
+        return "SHORT Γ · trend-amplifying bias"
+    return "NEUTRAL Γ"
