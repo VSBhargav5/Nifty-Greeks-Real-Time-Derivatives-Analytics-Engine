@@ -6,6 +6,8 @@ from metrics import (
     atm_iv,
     dealer_gex,
     gamma_flip_strike,
+    gamma_regime,
+    iv_skew,
     max_pain,
     oi_walls,
     put_call_ratio,
@@ -92,3 +94,22 @@ def test_gamma_flip_strike():
     )
     flip = gamma_flip_strike(df)
     assert flip is not None
+
+
+def test_iv_skew():
+    df = pd.DataFrame(
+        [
+            {"type": "PE", "strike": 80, "underlying": 100, "iv": 0.28},
+            {"type": "CE", "strike": 120, "underlying": 100, "iv": 0.18},
+            {"type": "CE", "strike": 100, "underlying": 100, "iv": 0.20},
+        ]
+    )
+    skew = iv_skew(df, spot=100, wing=20)
+    assert skew is not None
+    assert abs(skew - 0.10) < 1e-9
+
+
+def test_gamma_regime():
+    assert "LONG" in gamma_regime(1.0)
+    assert "SHORT" in gamma_regime(-1.0)
+    assert gamma_regime(None) == "UNKNOWN"
