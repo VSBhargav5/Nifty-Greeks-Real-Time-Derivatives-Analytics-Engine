@@ -32,3 +32,26 @@ CREATE INDEX IF NOT EXISTS idx_nifty_greeks_type_ts
 
 CREATE INDEX IF NOT EXISTS idx_nifty_greeks_symbol_ts
     ON nifty_greeks_realtime (symbol, ingestion_timestamp DESC);
+
+-- One row per ingestion cycle: levels used for snapshot-to-snapshot compare.
+CREATE TABLE IF NOT EXISTS snapshot_summaries (
+    id                  BIGSERIAL PRIMARY KEY,
+    symbol              TEXT DEFAULT 'NIFTY',
+    ingestion_timestamp TIMESTAMP NOT NULL,
+    expiry              TEXT,
+    spot                DOUBLE PRECISION,
+    net_gex             DOUBLE PRECISION,
+    pcr                 DOUBLE PRECISION,
+    atm_iv              DOUBLE PRECISION,
+    skew                DOUBLE PRECISION,
+    max_pain            DOUBLE PRECISION,
+    call_wall           DOUBLE PRECISION,
+    put_wall            DOUBLE PRECISION,
+    gamma_flip          DOUBLE PRECISION,
+    regime              TEXT,
+    n_rows              INTEGER,
+    total_oi            BIGINT
+);
+
+CREATE INDEX IF NOT EXISTS idx_snapshot_summaries_ts
+    ON snapshot_summaries (symbol, ingestion_timestamp DESC);
