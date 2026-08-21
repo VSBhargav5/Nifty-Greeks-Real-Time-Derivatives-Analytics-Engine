@@ -2,7 +2,7 @@
 
 High-frequency **ELT** pipeline: NSE option chain → vectorized Black–Scholes Greeks / IV → PostgreSQL → **dark GEX terminal** (Streamlit).
 
-Surfaces **GEX**, **IV smile / skew**, **OI / ΔOI**, **max pain**, **PCR**, **ATM IV**, **call/put walls**, **gamma-flip**, and a **dealer-gamma regime** badge.
+Surfaces **GEX**, **IV smile / skew**, **OI / ΔOI**, **max pain**, **PCR**, **ATM IV**, **call/put walls**, **gamma-flip**, a **dealer-gamma regime** badge — and now **snapshot-to-snapshot diffs** (ΔGEX, wall moves, regime flips).
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![Docker](https://img.shields.io/badge/Docker-Compose-blue)
@@ -23,15 +23,24 @@ docker compose up -d --build   # db + etl + dashboard → http://localhost:8501
 pip install -r requirements.txt
 make test
 python etl.py --once --expiries 2 --export-csv snapshots/latest.csv
+make compare                   # last cycle vs previous (needs 2 ETL runs)
 ```
 
-## Dashboard highlights
+## Snapshot diff (the new layer)
 
-- Dark **trading-terminal** chrome (KPI cards, regime pill, mono metrics)
-- Annotated levels on charts: **spot**, **max pain**, **OI walls**, **γ flip**
-- **Net GEX** by strike + **cumulative GEX** profile
-- **IV skew** (put wing − call wing)
-- Tabs: OI & IV · GEX map · History · Data (CSV download)
+Each successful ETL cycle writes a **summary row** (`spot`, `net_gex`, `pcr`, walls, regime, …).
+
+```bash
+python compare_cli.py
+python compare_cli.py --export-csv snapshots/diff.csv
+```
+
+Dashboard tab **Δ vs last** shows headline deltas + rule-based alerts:
+
+- regime flip
+- net GEX sign change
+- call/put wall jump (≥50 pts)
+- PCR crossing 1
 
 ## CLI
 
@@ -39,6 +48,7 @@ python etl.py --once --expiries 2 --export-csv snapshots/latest.csv
 python etl.py --once
 python etl.py --once --expiries 2 --export-csv out.csv --retain-hours 48
 python etl.py --once --symbol BANKNIFTY
+python compare_cli.py --symbol NIFTY
 ```
 
 ## Config
