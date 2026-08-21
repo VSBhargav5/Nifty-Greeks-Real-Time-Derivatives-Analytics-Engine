@@ -17,6 +17,8 @@ from py_vollib_vectorized import get_all_greeks, vectorized_implied_volatility
 from sqlalchemy import create_engine, text
 
 from metrics import dealer_gex, time_to_expiry_years
+from snapshot import summarize
+from snapshot_store import save_summary
 
 logging.basicConfig(
     level=logging.INFO,
@@ -219,6 +221,20 @@ def load_frame(df: pd.DataFrame) -> int:
     return len(df)
 
 
+def persist_snapshot(df: pd.DataFrame) -> None:
+    summary = summarize(df)
+    if not summary:
+        return
+    save_summary(engine, summary)
+    logging.info(
+        "Snapshot %s spot=%s net_gex=%s pcr=%s",
+        summary.get("expiry"),
+        summary.get("spot"),
+        summary.get("net_gex"),
+        summary.get("pcr"),
+    )
+
+
 def export_csv(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
@@ -249,6 +265,8 @@ def job(
 ) -> int:
     df = process_data(get_nse_data(symbol), symbol=symbol, n_expiries=n_expiries)
     n = load_frame(df)
+    if n:
+        persist_snapshot(df)
     if export_path is not None and not df.empty:
         export_csv(df, export_path)
     if retain_hours > 0:
