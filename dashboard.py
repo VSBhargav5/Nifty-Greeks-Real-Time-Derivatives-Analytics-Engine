@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from sqlalchemy import create_engine
 
+from dashboard_diff import load_vs_last
 from metrics import (
     atm_iv,
     gamma_flip_strike,
@@ -27,7 +28,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# --- Dark trading-terminal chrome ---
 st.markdown(
     """
 <style>
@@ -161,6 +161,12 @@ def style_fig(fig: go.Figure, title: str) -> go.Figure:
     return fig
 
 
+def _delta_label(v) -> str:
+    if v is None:
+        return "—"
+    return f"{v:+,.2f}" if abs(v) < 1000 else f"{v:+,.0f}"
+
+
 try:
     df = pd.read_sql(LATEST_SQL, engine)
 except Exception:
@@ -189,13 +195,12 @@ flip = gamma_flip_strike(df) if "gex" in df.columns else None
 regime = gamma_regime(net_gex)
 regime_cls = "long" if net_gex and net_gex > 0 else ("short" if net_gex and net_gex < 0 else "neutral")
 
-# --- Hero ---
 st.markdown(
     f"""
 <div class="hero">
   <div>
     <h1>⚡ Nifty Greeks Engine</h1>
-    <div class="sub">NSE chain → vectorized BS Greeks → Postgres → live GEX terminal</div>
+    <div class="sub">NSE chain → vectorized BS Greeks → Postgres → live GEX terminal + snapshot diff</div>
   </div>
   <div class="regime {regime_cls}">{regime}</div>
 </div>
@@ -214,7 +219,6 @@ with ctrl3:
     if auto_sec:
         st.markdown(f"<meta http-equiv='refresh' content='{auto_sec}'>", unsafe_allow_html=True)
 
-# --- KPI cards ---
 st.markdown(
     f"""
 <div class="kpi-grid">
@@ -233,7 +237,9 @@ st.markdown(
 
 df_near = df[(df["strike"] > spot - strike_window) & (df["strike"] < spot + strike_window)].copy()
 
-tab_oi, tab_gex, tab_hist, tab_data = st.tabs(["📈 OI & IV", "☢️ GEX map", "⏱ History", "📋 Data"])
+tab_oi, tab_gex, tab_vs, tab_hist, tab_data = st.tabs(
+    ["📈 OI & IV", "☢️ GEX map", "Δ vs last", "⏱ History", "📋 Data"]
+)
 
 with tab_oi:
     c1, c2 = st.columns(2)
@@ -304,7 +310,6 @@ with tab_gex:
     _add_level(fig_gex, flip, "γ flip", "#fbbf24")
     st.plotly_chart(fig_gex, use_container_width=True)
 
-    # Cumulative GEX profile
     if not by_strike.empty:
         cum = by_strike.copy()
         cum["cum_gex"] = cum["gex"].cumsum()
@@ -323,6 +328,33 @@ with tab_gex:
         _add_level(fig_cum, flip, "γ flip", "#fbbf24")
         _add_level(fig_cum, spot, "spot", "#38bdf8")
         st.plotly_chart(fig_cum, use_container_width=True)
+
+with tab_vs:
+    vs = None
+    try:
+        vs = load_vs_last(engine, symbol=str(df["symbol"].iloc[0]) if "symbol" in df.columns else "NIFTY")
+    except Exception:
+        vs = None
+    if not vs:
+        st.info("Need two ETL cycles so we can compare last vs previous.")
+    else:
+        fresh = vs["freshness"]
+        st.caption(
+            f"Freshness: {fresh['label']} ({fresh['age_seconds']}s) · "
+            f"{vs['prev'].get('ingestion_timestamp')} → {vs['curr'].get('ingestion_timestamp')}"
+        )
+        d = vs["diff"]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Δ Spot", _delta_label(d.get("d_spot")))
+        c2.metric("Δ Net GEX", _delta_label(d.get("d_net_gex")))
+        c3.metric("Δ PCR", _delta_label(d.get("d_pcr")))
+        c4.metric("Δ Call wall", _delta_label(d.get("d_call_wall")))
+        if vs["alerts"]:
+            st.markdown("**Alerts**")
+            for msg in vs["alerts"]:
+                st.write(f"• {msg}")
+        else:
+            st.write("No rule-based alerts this cycle.")
 
 with tab_hist:
     try:
