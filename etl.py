@@ -34,6 +34,12 @@ SYMBOL = os.getenv("SYMBOL", "NIFTY")
 MAX_FETCH_RETRIES = int(os.getenv("MAX_FETCH_RETRIES", "3"))
 POLL_MIN = int(os.getenv("POLL_MIN_SECONDS", "180"))
 POLL_MAX = int(os.getenv("POLL_MAX_SECONDS", "240"))
+NSE_HOME = "https://www.nseindia.com"
+NSE_CHAIN_PAGE = "https://www.nseindia.com/option-chain"
+NSE_CONTRACT_INFO = "https://www.nseindia.com/api/option-chain-contract-info"
+NSE_CHAIN_V3 = "https://www.nseindia.com/api/option-chain-v3"
+# Legacy path — NSE returns 404 as of 2026-09.
+NSE_CHAIN_LEGACY = "https://www.nseindia.com/api/option-chain-indices"
 
 engine = create_engine(DB_URL)
 
@@ -41,42 +47,124 @@ HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
+        "Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": "application/json,text/plain,*/*",
     "Accept-Language": "en-US,en;q=0.9",
     "Connection": "keep-alive",
-    "Referer": "https://www.nseindia.com/option-chain",
+    "Referer": NSE_CHAIN_PAGE,
 }
 
 
-def get_nse_data(symbol: str = SYMBOL) -> dict | None:
+def _hydrate(session: requests.Session) -> None:
+    """NSE blocks bare /api calls. Warm cookies from the option-chain page."""
+    try:
+        session.get(NSE_HOME, headers=HEADERS, timeout=10)
+    except Exception as e:
+        logging.warning("Homepage warm failed (%s); trying option-chain page", e)
+    session.get(NSE_CHAIN_PAGE, headers=HEADERS, timeout=12)
+
+
+def _row_expiry(item: dict) -> str | None:
+    exp = item.get("expiryDate") or item.get("expiryDates")
+    if isinstance(exp, list) and exp:
+        return str(exp[0])
+    if exp:
+        return str(exp)
+    for side in ("CE", "PE"):
+        if side in item and item[side].get("expiryDate"):
+            return str(item[side]["expiryDate"])
+    return None
+
+
+def get_nse_data(symbol: str = SYMBOL, n_expiries: int = 2) -> dict | None:
+    """Fetch option chain via NSE v3 (legacy /api/option-chain-indices is 404)."""
     session = requests.Session()
     try:
-        logging.info("Connecting to NSE homepage (cookie hydration)...")
-        session.get("https://www.nseindia.com", headers=HEADERS, timeout=10)
+        logging.info("Connecting to NSE (cookie hydration)...")
+        _hydrate(session)
     except Exception as e:
-        logging.error("Homepage connect failed: %s", e)
+        logging.error("Session warm failed: %s", e)
         return None
 
-    time.sleep(1.5)
-    url = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
-
+    time.sleep(0.8)
+    info_url = f"{NSE_CONTRACT_INFO}?symbol={symbol}"
+    expiries: list[str] = []
     for attempt in range(1, MAX_FETCH_RETRIES + 1):
         try:
-            r = session.get(url, headers=HEADERS, timeout=12)
-            logging.info("Fetch attempt %s → status %s", attempt, r.status_code)
-            if r.status_code in (401, 403):
-                logging.warning("Blocked (%s). Re-hydrating session...", r.status_code)
-                session.get("https://www.nseindia.com", headers=HEADERS, timeout=10)
+            info = session.get(info_url, headers=HEADERS, timeout=12)
+            logging.info("Contract-info attempt %s → status %s", attempt, info.status_code)
+            if info.status_code in (401, 403):
+                _hydrate(session)
                 time.sleep(2)
                 continue
-            r.raise_for_status()
-            return r.json()
+            info.raise_for_status()
+            payload = info.json()
+            expiries = list(payload.get("expiryDates") or [])
+            break
         except Exception as e:
-            logging.error("Fetch error (attempt %s): %s", attempt, e)
+            logging.error("Contract-info error (attempt %s): %s", attempt, e)
             time.sleep(2)
-    return None
+    if not expiries:
+        logging.error("No expiry dates from NSE contract-info")
+        return None
+
+    n = max(1, min(n_expiries, len(expiries)))
+    selected = expiries[:n]
+    merged_rows: list[dict] = []
+    underlying = None
+    timestamp = None
+
+    for exp in selected:
+        url = f"{NSE_CHAIN_V3}?type=Indices&symbol={symbol}&expiry={exp}"
+        ok = None
+        for attempt in range(1, MAX_FETCH_RETRIES + 1):
+            try:
+                r = session.get(url, headers=HEADERS, timeout=15)
+                logging.info("v3 %s attempt %s → status %s", exp, attempt, r.status_code)
+                if r.status_code in (401, 403):
+                    _hydrate(session)
+                    time.sleep(2)
+                    continue
+                if r.status_code == 404:
+                    # last-ditch legacy (will 404 after NSE cutover)
+                    legacy = session.get(f"{NSE_CHAIN_LEGACY}?symbol={symbol}", headers=HEADERS, timeout=12)
+                    logging.info("legacy fallback status %s", legacy.status_code)
+                    if legacy.ok:
+                        return legacy.json()
+                    break
+                r.raise_for_status()
+                ok = r.json()
+                break
+            except Exception as e:
+                logging.error("v3 fetch error %s (attempt %s): %s", exp, attempt, e)
+                time.sleep(2)
+        if not ok:
+            continue
+        rec = ok.get("records") or {}
+        if underlying is None:
+            underlying = rec.get("underlyingValue")
+            timestamp = rec.get("timestamp")
+        rows = rec.get("data") or (ok.get("filtered") or {}).get("data") or []
+        for row in rows:
+            if not row.get("expiryDate") and not row.get("expiryDates"):
+                row = dict(row)
+                row["expiryDate"] = exp
+                row["expiryDates"] = exp
+            merged_rows.append(row)
+
+    if not merged_rows:
+        logging.error("v3 returned no strike rows")
+        return None
+
+    return {
+        "records": {
+            "data": merged_rows,
+            "expiryDates": expiries,
+            "underlyingValue": underlying,
+            "timestamp": timestamp,
+        }
+    }
 
 
 def _build_frame(
@@ -92,11 +180,15 @@ def _build_frame(
 
     rows = []
     for item in records:
-        exp = item.get("expiryDate")
+        exp = _row_expiry(item)
         if exp not in expiry_set:
-            continue
+            # v3 sometimes stamps CE.expiryDate as DD-MM-YYYY; map via selected list order
+            if exp and exp.replace("-", "") and len(expiries) == 1:
+                exp = expiries[0]
+            elif exp not in expiry_set:
+                continue
         strike = item["strikePrice"]
-        tte = tte_by_exp[exp]
+        tte = tte_by_exp.get(exp) or tte_by_exp[expiries[0]]
         for side, flag in (("CE", "c"), ("PE", "p")):
             if side not in item:
                 continue
@@ -115,7 +207,7 @@ def _build_frame(
                     "change_in_oi": int(leg.get("changeinOpenInterest") or 0),
                     "volume": int(leg.get("totalTradedVolume") or 0),
                     "underlying": underlying_price,
-                    "expiry": exp,
+                    "expiry": exp if exp in expiry_set else expiries[0],
                     "time_to_expiry": tte,
                 }
             )
@@ -263,7 +355,11 @@ def job(
     export_path: Path | None = None,
     retain_hours: int = 0,
 ) -> int:
-    df = process_data(get_nse_data(symbol), symbol=symbol, n_expiries=n_expiries)
+    df = process_data(
+        get_nse_data(symbol, n_expiries=n_expiries),
+        symbol=symbol,
+        n_expiries=n_expiries,
+    )
     n = load_frame(df)
     if n:
         persist_snapshot(df)
